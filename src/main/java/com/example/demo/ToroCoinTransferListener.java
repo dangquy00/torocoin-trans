@@ -8,16 +8,20 @@ import org.web3j.abi.TypeReference;
 import org.web3j.abi.datatypes.Address;
 import org.web3j.abi.datatypes.Event;
 import org.web3j.abi.datatypes.generated.Uint256;
+import org.web3j.crypto.Credentials;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameterName;
+import org.web3j.protocol.core.RemoteFunctionCall;
 import org.web3j.protocol.core.methods.request.EthFilter;
 import org.web3j.protocol.http.HttpService;
+import org.web3j.tx.gas.DefaultGasProvider;
 import org.web3j.utils.Numeric;
 
 import javax.annotation.PostConstruct;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Arrays;
+import java.util.List;
 
 @Service
 @Slf4j
@@ -31,6 +35,12 @@ public class ToroCoinTransferListener {
     private String toroCoinSmartContractAddress;
     @Value("${torocoin-swap-wallet-address}")
     private String toroCoinSwapAddress;
+    @Value("${torocoin-pair-busd-address}")
+    private String pairBusdAddress;
+    @Value("${torocoin-busd-address}")
+    private String busdAddress;
+    @Value("${torocoin-query-wallet-private-key}")
+    private String queryWalletPrivateKey;
 
     @PostConstruct
     public void run() {
@@ -65,7 +75,9 @@ public class ToroCoinTransferListener {
                 String txHash = data.getTransactionHash();
                 if (!toroCoinSwapAddress.toLowerCase().equals(to.toLowerCase())) return;
 
-                BigDecimal bigDecimal = BigDecimal.valueOf(Long.parseLong(Numeric.toBigInt(data.getData()).toString()));
+                 BigInteger amountBusd = getBusdFromToroCoin(Numeric.toBigInt(data.getData()));
+
+                BigDecimal bigDecimal = BigDecimal.valueOf(amountBusd.doubleValue());
                 double amount = bigDecimal.divide(BigDecimal.valueOf(1E18)).doubleValue();
 
                 //TODO Save history: from, to, amount, originData, txHash
@@ -79,5 +91,16 @@ public class ToroCoinTransferListener {
 
         });
         log.info("ToroCoinTransferListener started");
+    }
+
+    BigInteger getBusdFromToroCoin(BigInteger toroCointAmount) throws Exception {
+        Web3j web3j = Web3j.build(new HttpService(blockchainNetworkUrl));
+        Credentials credentials = Credentials.create(queryWalletPrivateKey);
+        RouterV1 router = new RouterV1(pairBusdAddress, web3j, credentials, new DefaultGasProvider());
+        RemoteFunctionCall<List> functionCall = router.getAmountsOut(toroCointAmount, Arrays.asList(toroCoinSmartContractAddress, busdAddress));
+        List<BigInteger> result = functionCall.send();
+        web3j.shutdown();
+        return result.get(1);
+
     }
 }
